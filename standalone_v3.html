@@ -311,7 +311,6 @@ body::before{
       </select>
     </div>
     <div class="fld"><label>日期</label><input id="s-date" type="date"></div>
-    <div class="fld" style="min-width:140px"><label>服务器地址 (可选)</label><input id="s-server" placeholder="http://localhost:8090"></div>
   </div>
 
   <button class="btn btn-primary btn-block" onclick="scoutSearch()" style="margin-bottom:16px">
@@ -657,29 +656,10 @@ function buildFactorCards(m){
 // SCOUT SEARCH (FULLY AUTOMATED — 内置数据 + 服务器)
 // ================================================================
 function scoutSearch(){
-  var comp=v('s-comp'),date=v('s-date'),server=v('s-server').trim();
-  $('scout-status').innerHTML='<div class="icon loading">⏳</div><div>正在搜索 '+date+' '+comp+' 赛前情报...</div>';
+  var comp=v('s-comp'),date=v('s-date');
+  $('scout-status').innerHTML='<div class="icon loading">⏳</div><div>正在加载 '+date+' '+comp+' 赛前情报...</div>';
   logPanel('scout-log','启动搜索: '+comp+' '+date);
-
-  // Try server API first
-  if(server){
-    var url=server+'/api/search-schedule?date='+date+'&competition='+encodeURIComponent(comp);
-    logPanel('scout-log','尝试连接服务器: '+server,'grn');
-    fetch(url).then(function(r){return r.json()}).then(function(data){
-      if(data.status==='ok'&&data.matches&&data.matches.length){
-        logPanel('scout-log','服务器返回 '+data.matches.length+' 场比赛','grn');
-        renderScoutResults(data.matches);
-      }else{
-        logPanel('scout-log','服务器无数据，使用内置数据库','amb');
-        useEmbeddedData(date,comp);
-      }
-    }).catch(function(e){
-      logPanel('scout-log','服务器连接失败: '+e.message,'red');
-      useEmbeddedData(date,comp);
-    });
-  }else{
-    useEmbeddedData(date,comp);
-  }
+  useEmbeddedData(date,comp);
 }
 
 function useEmbeddedData(date, comp){
