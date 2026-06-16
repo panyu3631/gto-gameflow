@@ -808,11 +808,13 @@ function computePrediction(m){
   for(var i=0;i<7;i++)for(var j=0;j<7;j++) scores.push({s:i+'-'+j, p:pois(i,lHome)*pois(j,lAway)});
   scores.sort(function(a,b){return b.p-a.p});
 
-  // Kelly
+  // Kelly (standard formula)
   var bestEV=Math.max(evH,evD,evA);
   var bestBet=evH>=evD&&evH>=evA?'主队胜':(evD>=evA?'平局':'客队胜');
   var bestEVval=bestEV;
-  var kellyStake=Math.max(0,(bestEV-1)/(bestEV>2?bestEV-1:1))*0.25;
+  var bestProb=evH>=evD&&evH>=evA?ph:(evD>=evA?pd:pa);
+  var bestOdds=evH>=evD&&evH>=evA?odds.home:(evD>=evA?odds.draw:odds.away);
+  var kellyStake=Math.max(0,(bestProb*(bestOdds-1)-(1-bestProb))/(bestOdds-1))*0.25;
   kellyStake=Math.min(kellyStake,0.03);
 
   // Risk assessment
@@ -905,6 +907,153 @@ function renderPrediction(r,containerId){
   $(containerId).innerHTML=h;
 }
 
+// ================================================================
+// PARLAY (串关) RECOMMENDATION ENGINE
+// ================================================================
+function computeParlayRecommendations(results){
+  // 1. Filter candidates
+  var candidates=[];
+  results.forEach(function(r,i){
+    if(!r) return;
+    var rl=r.riskLevel||'L4';
+    var riskOrder={L0:0,L1:1,L2:2,L3:3,L4:4};
+    if(riskOrder[rl]>1) return; // Only L0/L1
+    var bets=r.recommendations.filter(function(rec){return rec.status==='bet'&&rec.ev>1.0});
+    if(!bets.length) return;
+    bets.forEach(function(bet){
+      var probVal=bet.sel==='主队胜'?r.probability.home:(bet.sel==='平局'?r.probability.draw:r.probability.away);
+      if(probVal<0.25) return; // Min prob threshold
+      candidates.push({idx:i, match:r, bet:bet, prob:probVal});
+    });
+  });
+  if(candidates.length<2) return []; // Need at least 2 for any parlay
+
+  // 2. Score each leg
+  candidates.forEach(function(c){
+    var r=c.match;
+    var kellyNorm=c.bet.stake>0?Math.min((c.bet.stake/0.03)*2,2):0;
+    var riskMap={L0:1.0,L1:0.75,L2:0.5,L3:0.25,L4:0.0};
+    var riskScore=riskMap[r.riskLevel]||0.5;
+    var evScore=Math.min(c.bet.ev/1.5,1.5);
+    c.legScore=c.prob*0.35+kellyNorm*0.25+riskScore*0.25+evScore*0.15;
+  });
+
+  // 3. Generate combinations
+  function genCombos(arr,size){
+    var combos=[];
+    function backtrack(start,cur){
+      if(cur.length===size){combos.push(cur.slice());return}
+      for(var i=start;i<arr.length;i++){cur.push(arr[i]);backtrack(i+1,cur);cur.pop()}
+    }
+    backtrack(0,[]);
+    return combos;
+  }
+
+  var allParlays=[];
+
+  [2,3,4].forEach(function(size){
+    if(candidates.length<size) return;
+    var combos=genCombos(candidates,size);
+    combos.forEach(function(combo){
+      // Check no duplicate matches
+      var idxes=combo.map(function(c){return c.idx});
+      if(new Set(idxes).size!==combo.length) return;
+
+      var combOdds=1, combProb=1, combEV=1, combScore=1;
+      var legs=[];
+      combo.forEach(function(c){
+        combOdds*=c.bet.o;
+        combProb*=c.prob;
+        combEV*=c.bet.ev;
+        combScore*=c.legScore;
+        legs.push({match:c.match,sel:c.bet.sel,odds:c.bet.o,prob:c.prob,ev:c.bet.ev,risk:c.match.riskLevel});
+      });
+      combScore*=combEV;
+
+      // Filter
+      if(combEV<1.0) return;
+      var kellyParlay=Math.max(0,(combProb*(combOdds-1)-(1-combProb))/(combOdds-1))*0.125;
+      if(kellyParlay<=0) return;
+      if(combScore<0.15) return;
+
+      allParlays.push({
+        type:size+'串1', legs:legs, combOdds:combOdds, combProb:combProb, combEV:combEV,
+        combScore:combScore, kellyStake:kellyParlay
+      });
+    });
+  });
+
+  // 4. Sort by score descending
+  allParlays.sort(function(a,b){return b.combScore-a.combScore});
+
+  // 5. Select top N per type, enforce match occurrence limit
+  var maxCounts={2:3,3:2,4:1};
+  var selected=[], matchCounts={};
+  allParlays.forEach(function(p){
+    var size=parseInt(p.type);
+    var typeCount=selected.filter(function(s){return s.type===p.type}).length;
+    if(typeCount>=maxCounts[size]) return;
+
+    // Check match occurrence limit
+    var tooMany=false;
+    p.legs.forEach(function(l){
+      var key=l.match.home+' vs '+l.match.away;
+      if((matchCounts[key]||0)>=2) tooMany=true;
+    });
+    if(tooMany) return;
+
+    // Track match counts
+    p.legs.forEach(function(l){
+      var key=l.match.home+' vs '+l.match.away;
+      matchCounts[key]=(matchCounts[key]||0)+1;
+    });
+    selected.push(p);
+  });
+
+  return selected;
+}
+
+function renderParlaySection(parlays,containerId){
+  if(!parlays||!parlays.length){
+    $(containerId).innerHTML='';
+    return;
+  }
+  var h='<div class="card" style="margin-top:8px;border-color:var(--accent);border-width:2px">';
+  h+='<div class="card-header"><h3>🎯 串关推荐</h3><span class="tag" style="background:var(--accent);color:#000">宁缺毋滥</span></div>';
+  h+='<p style="font-size:.68rem;color:var(--muted);margin-bottom:10px">仅推荐符合质量标准的组合，2串1/3串1/4串1灵活推荐</p>';
+
+  parlays.forEach(function(p,i){
+    var riskClr={L0:'var(--grn)',L1:'var(--amb)',L2:'var(--accent)'};
+    h+='<div style="margin-bottom:12px;padding:10px;background:var(--surf);border-radius:var(--radius);border:1px solid var(--rule)">';
+    h+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">';
+    h+='<span style="font-weight:700;font-size:.78rem;color:var(--accent)">'+p.type+' 推荐 #'+(i+1)+'</span>';
+    h+='<span style="font-size:.65rem;color:var(--muted)">评分: '+p.combScore.toFixed(2)+'</span>';
+    h+='</div>';
+
+    p.legs.forEach(function(l,j){
+      var clr=riskClr[l.risk]||'var(--muted)';
+      h+='<div style="font-size:.72rem;padding:4px 8px;margin:3px 0;background:var(--bg);border-radius:4px;border-left:3px solid '+clr+'">';
+      h+='<span style="font-weight:600">'+(j+1)+'. '+l.match.home+' vs '+l.match.away+'</span>';
+      h+='<span style="color:var(--muted)"> · 选: </span><span style="color:var(--grn);font-weight:600">'+l.sel+'</span>';
+      h+='<span style="color:var(--muted);margin-left:8px">@'+l.odds.toFixed(2)+'</span>';
+      h+='<span style="color:var(--muted);margin-left:6px;font-size:.65rem">概率:'+(l.prob*100).toFixed(0)+'% EV:'+l.ev.toFixed(2)+'</span>';
+      h+='</div>';
+    });
+
+    h+='<div style="display:flex;gap:12px;margin-top:6px;font-size:.7rem;flex-wrap:wrap">';
+    h+='<span style="color:var(--accent);font-weight:700">组合赔率: '+p.combOdds.toFixed(2)+'</span>';
+    h+='<span style="color:var(--muted)">组合概率: '+(p.combProb*100).toFixed(1)+'%</span>';
+    h+='<span style="color:var(--grn)">组合EV: '+p.combEV.toFixed(2)+'</span>';
+    h+='<span style="color:var(--accent);font-weight:700">建议仓位: '+(p.kellyStake*100).toFixed(2)+'%</span>';
+    h+='</div>';
+    h+='</div>';
+  });
+
+  h+='<div style="font-size:.62rem;color:var(--muted);margin-top:6px">串关投注风险较高，建议单笔不超过总本金0.5%，每日串关总敞口不超过2%</div>';
+  h+='</div>';
+  $(containerId).innerHTML=h;
+}
+
 function runSinglePredict(i){
   var m=storedMatches[i];
   var r=computePrediction(m);
@@ -924,6 +1073,11 @@ function runAllPredict(){
   });
   updatePredictTab();
   showTab('predict');
+
+  // Compute and render parlay
+  var parlays=computeParlayRecommendations(storedResults);
+  renderParlaySection(parlays,'batch-result');
+
   toast('✅ 已预测全部 '+storedMatches.length+' 场比赛');
 }
 
@@ -943,11 +1097,19 @@ function updatePredictTab(){
     h+='<div id="plist-'+i+'"></div>';
     h+='</div>';
   });
+  // Parlay section
+  var parlays=computeParlayRecommendations(storedResults);
+  if(parlays.length){
+    h+='<div id="predict-parlay"></div>';
+  }
   $('predict-list').innerHTML=h;
   storedResults.forEach(function(r,i){
     if(!r) return;
     renderPrediction(r,'plist-'+i);
   });
+  if(parlays.length){
+    renderParlaySection(parlays,'predict-parlay');
+  }
 }
 
 // ================================================================
