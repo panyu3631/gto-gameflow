@@ -579,9 +579,13 @@ function buildFactorCards(m){
   cards+='<div class="factor-item"><div class="f-label">FIFA 排名</div><div class="f-value">#'+m.home_team.fifa_rank+' vs #'+m.away_team.fifa_rank+'</div></div>';
   cards+='<div class="factor-item"><div class="f-label">赔率 (主/平/客)</div><div class="f-value">'+fmtOdds(m.odds.home)+' / '+fmtOdds(m.odds.draw)+' / '+fmtOdds(m.odds.away)+'</div></div>';
 
-  // Form
-  var hf=(m.home_team.recent_form||['W','W','D','W','L']).slice(0,5).join('');
-  var af=(m.away_team.recent_form||['W','L','D','W','W']).slice(0,5).join('');
+  // Form (handle both array and string recent_form)
+  var hf=(m.home_team.recent_form||['W','W','D','W','L']);
+  var af=(m.away_team.recent_form||['W','L','D','W','W']);
+  if(!Array.isArray(hf)) hf=[hf];
+  if(!Array.isArray(af)) af=[af];
+  hf=hf.slice(0,5).join('');
+  af=af.slice(0,5).join('');
   cards+='<div class="factor-item"><div class="f-label">近期状态 (5场)</div><div class="f-value">'+hf+' / '+af+'</div></div>';
 
   // Injuries (support both key_injuries and home_injuries/away_injuries formats)
@@ -684,8 +688,8 @@ function useEmbeddedData(date, comp){
 
     matches.push({
       match_date:date, competition:comp, time:m.time, group:m.group, stage:m.stage,
-      home_team:{name:m.home,elo:ht.elo,fifa_rank:ht.fifa_rank,recent_form:"--",tactical_style:ht.style},
-      away_team:{name:m.away,elo:at.elo,fifa_rank:at.fifa_rank,recent_form:"--",tactical_style:at.style},
+      home_team:{name:m.home,elo:ht.elo,fifa_rank:ht.fifa_rank,recent_form:["--"],tactical_style:ht.style},
+      away_team:{name:m.away,elo:at.elo,fifa_rank:at.fifa_rank,recent_form:["--"],tactical_style:at.style},
       odds:odds, environment:env, key_injuries:inj, h2h:h2h, referee:ref
     });
   });
