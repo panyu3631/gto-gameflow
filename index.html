@@ -750,7 +750,7 @@ function toggleMatch(i){
 // 18-FACTOR PREDICTION ENGINE (GTO-GameFlow v2.1)
 // ================================================================
 var F = {
-  elo_per_80pts:0.12, elo_max:0.72, home_advantage:0.25,
+  elo_per_80pts:0.08, elo_max:0.48, home_advantage:0.15,
   core_return:0.28, host_first_match_home:0.55, host_first_match_draw:-0.30,
   host_ko_stage:0.15, xg_range:[-0.36,0.36],
   altitude_500:0.0, altitude_1500:-0.45, altitude_max:-0.65,
@@ -1062,7 +1062,7 @@ function computePrediction(m){
   var recs=[];
   [{l:'主队胜',p:ph,o:odds.home||2},{l:'平局',p:pd,o:odds.draw||3.5},{l:'客队胜',p:pa,o:odds.away||3}].forEach(function(r){
     var ev=r.p*r.o;
-    var k = Math.max(0, (r.p*(r.o-1)-(1-r.p))/(r.o-1)) * 0.25; // 1/4 Kelly
+    var k = Math.max(0, (r.p*(r.o-1)-(1-r.p))/(r.o-1)) * 0.15; // 0.15 Kelly
     k = Math.min(k, 0.03); // 3% cap per bet
     if(ev>1.02&&r.p>=0.08){
       recs.push({mkt:'胜平负',sel:r.l,ev:ev,stake:k,o:r.o,p:r.p,status:'bet',reason:'EV='+ev.toFixed(3)+' 概率='+(r.p*100).toFixed(1)+'%'});
@@ -1075,7 +1075,7 @@ function computePrediction(m){
   var overP=1-underP;
   [{l:'小球',p:underP,o:odds.under_odds||1.9},{l:'大球',p:overP,o:odds.over_odds||1.9}].forEach(function(r){
     var ev=r.p*r.o;
-    var k = Math.max(0, (r.p*(r.o-1)-(1-r.p))/(r.o-1)) * 0.25;
+    var k = Math.max(0, (r.p*(r.o-1)-(1-r.p))/(r.o-1)) * 0.15;
     k = Math.min(k, 0.03);
     if(ev>1.02&&r.p>=0.08){
       recs.push({mkt:'大小球'+ouLine,sel:r.l,ev:ev,stake:k,o:r.o,p:r.p,status:'bet'});
